@@ -1,0 +1,7 @@
+{
+  "name": "sample_vfs",
+  "root": {
+    "type": "dir",
+    "children": {}
+  }
+}
