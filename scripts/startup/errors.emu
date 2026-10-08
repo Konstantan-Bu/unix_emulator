@@ -1,0 +1,7 @@
+# Проверка: ошибочные строки пропускаются, выполнение продолжается
+ls
+badcommand
+cd /tmp
+anotherbadcommand
+ls
+exit

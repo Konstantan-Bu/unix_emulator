@@ -1,0 +1,10 @@
+# Полный набор команд + переменные окружения + кавычки
+ls $HOME
+cd "my documents"
+ls 'file with spaces.txt'
+cd /usr/local/bin
+ls -la --color=auto
+unknown_command arg1 arg2
+cd
+ls
+exit
