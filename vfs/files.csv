@@ -1,0 +1,10 @@
+path,type,content
+/,dir,
+/home,dir,
+/home/user,dir,
+/home/user/notes.txt,file,cGVpcnZhIHN0cm9rYQp2dG9yYXlhIHN0cm9rYQp0cmV0eWEgc3Ryb2thCg==
+/home/user/todo.txt,file,dGFzazE6IGN1cGxlbgp0YXNrMjogcmVhZG1lCnRhc2szOiBjb21taXQ=
+/home/user/docs,dir,
+/home/user/docs/manual.txt,file,TWFudWFsIGxpbmUgMQpNYW51YWwgbGluZSAyCk1hbnVhbCBsaW5lIDMKTWFudWFsIGxpbmUgNApNYW51YWwgbGluZSA1
+/etc,dir,
+/etc/config.txt,file,a2V5PXZhbHVlCm5hbWU9ZW11bGF0b3IKdmVyc2lvbj0xLjA=
