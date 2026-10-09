@@ -17,6 +17,9 @@ python src/main.py --vfs vfs/deep.csv --script scripts/startup/vfs_test.emu
 echo ">>> Режим: --vfs broken (ошибка + fallback)"
 python src/main.py --vfs vfs/broken.csv --script scripts/startup/basic.emu
 
+echo ">>> Режим: --vfs files + stage4"
+python src/main.py --vfs vfs/files.csv --script scripts/startup/stage4.emu
+
 echo ">>> Режим: без --vfs (default)"
 python src/main.py --script scripts/startup/basic.emu
 

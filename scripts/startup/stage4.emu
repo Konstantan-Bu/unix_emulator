@@ -1,0 +1,39 @@
+# === Тесты ls ===
+ls
+ls /
+ls /home
+ls /home/user
+ls /home/user/docs
+
+# === Тесты cd ===
+cd /home
+ls
+cd user
+ls
+cd ..
+ls
+cd /
+ls
+
+# === Тесты tail ===
+tail /home/user/notes.txt
+tail -n 2 /home/user/notes.txt
+tail -n 1 /home/user/docs/manual.txt
+
+# === Тесты tac ===
+tac /home/user/notes.txt
+tac /home/user/todo.txt
+
+# === Тесты uname ===
+uname
+uname -a
+
+# === Обработка ошибок ===
+ls /nonexistent
+ls /home/user/notes.txt
+cd /nonexistent
+cd ../../../..
+tail /home/user/no_such_file.txt
+tac /home/user
+tail /home/user/notes.txt extra_arg
+exit
