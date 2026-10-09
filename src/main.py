@@ -1,8 +1,7 @@
 # === ИМПОРТЫ ===
-# Импорт = подключение готовых инструментов из стандартной библиотеки.
 
 import argparse   # разбор аргументов командной строки (--vfs, --script)
-import base64     # декодирование содержимого файлов из base64 (новое)
+import base64     # декодирование содержимого файлов из base64
 import csv        # чтение и разбор CSV-файлов
 import getpass    # получить имя текущего пользователя системы
 import os         # работа с ОС: переменные окружения и т.п.
@@ -13,29 +12,30 @@ import sys        # доступ к sys.argv — аргументам запус
 
 # === КОНСТАНТЫ ===
 
-DEFAULT_VFS_PATH = None                    # путь к VFS по умолчанию
-DEFAULT_SCRIPT_PATH = None                 # путь к скрипту по умолчанию
-SCRIPT_COMMENT_PREFIX = "#"                # символ комментария в .emu
-EXIT_COMMAND = "exit"                      # имя команды выхода
+DEFAULT_VFS_PATH = None
+DEFAULT_SCRIPT_PATH = None
+SCRIPT_COMMENT_PREFIX = "#"
+EXIT_COMMAND = "exit"
 
-VFS_DEFAULT_NAME = "default"               # имя VFS по умолчанию
-CSV_COLUMNS = ("path", "type", "content")  # обязательные колонки CSV
-NODE_TYPE_DIR = "dir"                      # тип узла: папка
-NODE_TYPE_FILE = "file"                    # тип узла: файл
+VFS_DEFAULT_NAME = "default"
+CSV_COLUMNS = ("path", "type", "content")
+NODE_TYPE_DIR = "dir"
+NODE_TYPE_FILE = "file"
 
-# Константы команд Этапа 4
-ROOT_PATH = "/"                            # корень VFS
-HOME_PATH = "/home"                        # "домашняя" папка для ~
-TAIL_DEFAULT_LINES = 10                    # сколько строк показывает tail
-UNAME_SHORT = "unix_emulator 1.0"          # вывод uname без флагов
-UNAME_LONG_FMT = (                         # шаблон вывода uname -a
+ROOT_PATH = "/"
+HOME_PATH = "/home"
+TAIL_DEFAULT_LINES = 10
+UNAME_SHORT = "unix_emulator 1.0"
+UNAME_LONG_FMT = (
     "unix_emulator 1.0 (эмуляция UNIX) "
     "host={host} python={py} cwd={cwd}"
 )
 
+# Новое на этапе 5:
+DEFAULT_OWNER = "user"            # владелец файлов/папок по умолчанию
+
 
 # === ФУНКЦИЯ: собрать приглашение ===
-# Теперь приглашение показывает текущую папку (cwd).
 
 def get_prompt(cwd):
     """Формирует приглашение вида username@hostname:/path$."""
@@ -50,7 +50,7 @@ def parse_args(argv):
     """Разбирает аргументы командной строки эмулятора."""
     parser = argparse.ArgumentParser(
         prog="unix_emulator",
-        description="Эмулятор командной строки UNIX-подобной ОС (Этап 4).",
+        description="Эмулятор командной строки UNIX-подобной ОС (Этап 5).",
     )
     parser.add_argument(
         "--vfs",
@@ -81,7 +81,11 @@ def print_debug_config(args):
 
 def create_default_vfs():
     """Создаёт VFS по умолчанию — только корень / в памяти."""
-    return {"/": {NODE_TYPE_DIR: True, "children": {}}}
+    return {"/": {
+        NODE_TYPE_DIR: True,
+        "children": {},
+        "owner": DEFAULT_OWNER,
+    }}
 
 
 # === ФУНКЦИЯ: проверить строку CSV ===
@@ -111,14 +115,27 @@ def _insert_node(root, path, node_type, content):
     for part in parts[:-1]:
         children = current.setdefault("children", {})
         if part not in children:
-            children[part] = {NODE_TYPE_DIR: True, "children": {}}
+            children[part] = {
+                NODE_TYPE_DIR: True,
+                "children": {},
+                "owner": DEFAULT_OWNER,
+            }
         current = children[part]
     leaf = parts[-1]
     children = current.setdefault("children", {})
     if node_type == NODE_TYPE_DIR:
-        children.setdefault(leaf, {NODE_TYPE_DIR: True, "children": {}})
+        if leaf not in children:
+            children[leaf] = {
+                NODE_TYPE_DIR: True,
+                "children": {},
+                "owner": DEFAULT_OWNER,
+            }
     else:
-        children[leaf] = {NODE_TYPE_DIR: False, "content": content}
+        children[leaf] = {
+            NODE_TYPE_DIR: False,
+            "content": content,
+            "owner": DEFAULT_OWNER,
+        }
 
 
 # === ФУНКЦИЯ: загрузить VFS из CSV ===
@@ -194,10 +211,6 @@ def try_load_vfs(vfs_path):
 
 
 # === СОСТОЯНИЕ ЭМУЛЯТОРА ===
-# Раньше функции ничего не помнили. Теперь нужна "память":
-#   - vfs_root — дерево VFS в памяти,
-#   - cwd      — текущая папка (абсолютный путь).
-# Храним в обычном словаре, чтобы прокидывать одним аргументом.
 
 def create_state(vfs_root):
     """Создаёт начальное состояние эмулятора."""
@@ -205,34 +218,20 @@ def create_state(vfs_root):
 
 
 # === ФУНКЦИЯ: нормализовать путь ===
-# Превращает "..", ".", "home/user", "/home/user" в абсолютный путь.
-# Примеры (cwd="/home/user"):
-#   "/etc"       → "/etc"
-#   "docs"       → "/home/user/docs"
-#   ".."         → "/home"
-#   "../.."      → "/"
-#   "."          → "/home/user"
-#   ""           → "/home/user"  (пустой путь = остаться на месте)
-#   "~"          → "/home"
 
 def resolve_path(cwd, target):
     """Возвращает абсолютный путь с учётом cwd."""
-    # Пустой аргумент — остаёмся где были
     if not target:
         return cwd
 
-    # ~ → /home
     if target == "~":
         return HOME_PATH
 
-    # Абсолютный путь — начинаем с корня
     if target.startswith(ROOT_PATH):
         stack = []
     else:
-        # Относительный — начинаем с cwd (кроме самого корня)
         stack = [p for p in cwd.split("/") if p]
 
-    # Разбираем части пути
     for part in target.split("/"):
         if part in ("", "."):
             continue
@@ -260,8 +259,24 @@ def get_node(vfs_root, abs_path):
     return current
 
 
+# === ФУНКЦИЯ: разделить путь на родителя и имя ===
+# "/home/user/a.txt" → ("/home/user", "a.txt")
+# "/a.txt"           → ("/", "a.txt")
+
+def split_parent(abs_path):
+    """Возвращает (родительский путь, имя) для абсолютного пути."""
+    if abs_path == ROOT_PATH:
+        return ROOT_PATH, ""
+    parts = [p for p in abs_path.strip("/").split("/") if p]
+    if not parts:
+        return ROOT_PATH, ""
+    parent = ROOT_PATH + "/".join(parts[:-1])
+    if parent == "":
+        parent = ROOT_PATH
+    return parent, parts[-1]
+
+
 # === ФУНКЦИЯ: декодировать содержимое файла ===
-# В CSV содержимое хранится в base64. Возвращаем текст.
 
 def decode_content(node):
     """Декодирует содержимое файла из base64 в текст."""
@@ -275,10 +290,18 @@ def decode_content(node):
 
 
 # === КОМАНДА: ls ===
+# Поддерживает флаг -l / -la — тогда печатает владельца.
 
 def cmd_ls(args, state):
     """Показывает содержимое папки."""
-    target = args[0] if args else state["cwd"]
+    long_format = False
+    rest = list(args)
+
+    if rest and rest[0] in ("-l", "-la", "-al"):
+        long_format = True
+        rest = rest[1:]
+
+    target = rest[0] if rest else state["cwd"]
     abs_path = resolve_path(state["cwd"], target)
     node = get_node(state["vfs"], abs_path)
 
@@ -294,11 +317,14 @@ def cmd_ls(args, state):
     if not children:
         return True
 
-    # Сортируем имена; папки помечаем слэшем на конце
     for name in sorted(children.keys()):
         child = children[name]
         suffix = "/" if child.get(NODE_TYPE_DIR) else ""
-        print(f"{name}{suffix}")
+        if long_format:
+            owner = child.get("owner", DEFAULT_OWNER)
+            print(f"{owner}  {name}{suffix}")
+        else:
+            print(f"{name}{suffix}")
     return True
 
 
@@ -323,7 +349,6 @@ def cmd_cd(args, state):
 
 
 # === КОМАНДА: tac ===
-# Печатает файл в обратном порядке строк (как tac в линуксе).
 
 def cmd_tac(args, state):
     """Выводит файл в обратном порядке строк."""
@@ -346,15 +371,12 @@ def cmd_tac(args, state):
         return True
 
     content = decode_content(node)
-    # splitlines() режет по \n и не оставляет пустых хвостов
     for line in reversed(content.splitlines()):
         print(line)
     return True
 
 
 # === КОМАНДА: tail ===
-# Показывает последние N строк файла. По умолчанию — 10.
-# Поддерживает форму: tail -n 3 file.txt
 
 def cmd_tail(args, state):
     """Выводит последние N строк файла."""
@@ -362,7 +384,6 @@ def cmd_tail(args, state):
         print("tail: missing file operand")
         return True
 
-    # Разбор флага -n
     lines_count = TAIL_DEFAULT_LINES
     if args[0] == "-n":
         if len(args) < 2:
@@ -400,14 +421,12 @@ def cmd_tail(args, state):
 
     content = decode_content(node)
     lines = content.splitlines()
-    # Берём последние lines_count строк (если строк меньше — все)
     for line in lines[-lines_count:]:
         print(line)
     return True
 
 
 # === КОМАНДА: uname ===
-# Без флагов — краткая строка. С -a — подробная.
 
 def cmd_uname(args, state):
     """Выводит информацию о системе эмулятора."""
@@ -427,8 +446,74 @@ def cmd_uname(args, state):
     return True
 
 
+# === КОМАНДА: touch ===
+# Создаёт пустой файл в VFS (в памяти). Файл на диске не меняется.
+
+def cmd_touch(args, state):
+    """Создаёт пустой файл (или несколько)."""
+    if not args:
+        print("touch: missing file operand")
+        return True
+
+    for target in args:
+        abs_path = resolve_path(state["cwd"], target)
+        parent_path, name = split_parent(abs_path)
+
+        if not name:
+            print(f"touch: cannot touch '{target}': Invalid path")
+            continue
+
+        parent = get_node(state["vfs"], parent_path)
+        if parent is None or not parent.get(NODE_TYPE_DIR):
+            print(
+                f"touch: cannot touch '{target}': "
+                "No such file or directory"
+            )
+            continue
+
+        children = parent.setdefault("children", {})
+        if name in children:
+            existing = children[name]
+            if existing.get(NODE_TYPE_DIR):
+                print(f"touch: cannot touch '{target}': Is a directory")
+            # Если файл уже есть — в реальном touch обновляется mtime.
+            # У нас — просто ничего не делаем.
+            continue
+
+        children[name] = {
+            NODE_TYPE_DIR: False,
+            "content": None,
+            "owner": DEFAULT_OWNER,
+        }
+    return True
+
+
+# === КОМАНДА: chown ===
+# Меняет владельца файла или папки в VFS (в памяти).
+
+def cmd_chown(args, state):
+    """Меняет владельца файла/папки."""
+    if len(args) < 2:
+        print("chown: missing operand")
+        return True
+
+    owner = args[0]
+    targets = args[1:]
+
+    for target in targets:
+        abs_path = resolve_path(state["cwd"], target)
+        node = get_node(state["vfs"], abs_path)
+        if node is None:
+            print(
+                f"chown: cannot access '{target}': "
+                "No such file or directory"
+            )
+            continue
+        node["owner"] = owner
+    return True
+
+
 # === ТАБЛИЦА КОМАНД ===
-# Просто словарь: имя команды → функция-обработчик.
 
 COMMANDS = {
     "ls": cmd_ls,
@@ -436,6 +521,8 @@ COMMANDS = {
     "tac": cmd_tac,
     "tail": cmd_tail,
     "uname": cmd_uname,
+    "touch": cmd_touch,
+    "chown": cmd_chown,
 }
 
 
