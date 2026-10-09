@@ -1,0 +1,35 @@
+# === Тесты touch ===
+cd /home/user
+ls
+touch newfile.txt
+ls
+touch a.txt b.txt c.txt
+ls
+touch notes.txt
+ls
+
+# === Проверяем, что созданный файл пустой ===
+tail newfile.txt
+
+# === Ошибки touch ===
+touch /nonexistent/file.txt
+touch
+touch /home/user/docs
+
+# === Тесты chown ===
+ls -l /home/user
+chown root /home/user/newfile.txt
+chown admin /home/user/docs
+ls -l /home/user
+ls -l /home/user/docs
+
+# === Ошибки chown ===
+chown
+chown root
+chown root /nonexistent
+chown root /home/user
+
+# === Проверяем, что исходные файлы не изменились ===
+cat /dev/null
+ls -l /
+exit
