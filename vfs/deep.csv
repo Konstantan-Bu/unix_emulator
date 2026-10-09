@@ -1,0 +1,12 @@
+path,type,content
+/,dir,
+/home,dir,
+/home/user,dir,
+/home/user/docs,dir,
+/home/user/docs/notes.txt,file,Tm90ZXM=
+/home/user/projects,dir,
+/home/user/projects/app,dir,
+/home/user/projects/app/main.py,file,cHJpbnQoImhpIik=
+/etc,dir,
+/etc/config,dir,
+/etc/config/app.conf,file,a2V5PXZhbHVl

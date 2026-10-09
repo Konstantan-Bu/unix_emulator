@@ -1,0 +1,6 @@
+path,type,content
+/,dir,
+/home,dir,
+/home/readme.txt,file,SGVsbG8sIHdvcmxkIQ==
+/etc,dir,
+/etc/hostname,file,bG9jYWxob3N0
