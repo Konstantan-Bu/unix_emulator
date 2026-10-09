@@ -1,160 +1,266 @@
 # === ИМПОРТЫ ===
 # Импорт = подключение готовых инструментов из стандартной библиотеки Python.
-# Каждый import даёт нам функции, которые кто-то уже написал за нас.
 
 import argparse   # разбор аргументов командной строки (--vfs, --script)
+import csv        # чтение и разбор CSV-файлов (новое на этапе 3)
 import getpass    # получить имя текущего пользователя системы
 import os         # работа с ОС: переменные окружения и т.п.
 import shlex      # умный разбор строки на слова (учитывает кавычки)
 import socket     # работа с сетью, тут — получить имя компьютера
-import sys        # доступ к sys.argv — аргументам, с которыми запущен скрипт
+import sys        # доступ к sys.argv — аргументам запуска
 
 
 # === КОНСТАНТЫ ===
-# Константы это переменные которые мы не меняем
+# Константа = переменная, значение которой мы не меняем. Пишут ЗАГЛАВНЫМИ.
 
-DEFAULT_VFS_PATH = None         # путь к VFS по умолчанию (пока нет) VFS = игрушечная файловая система
-DEFAULT_SCRIPT_PATH = None      # путь к скрипту по умолчанию (пока нет)
-PROMPT_USER_HOST_FMT = "{user}@{host}:~$ "   # шаблон приглашения
-SCRIPT_COMMENT_PREFIX = "#"     # символ, с которого начинается комментарий в .emu
-EXIT_COMMAND = "exit"           # имя команды выхода
+DEFAULT_VFS_PATH = None                    # путь к VFS по умолчанию (нет)
+DEFAULT_SCRIPT_PATH = None                 # путь к скрипту по умолчанию (нет)
+PROMPT_USER_HOST_FMT = "{user}@{host}:~$ " # шаблон приглашения
+SCRIPT_COMMENT_PREFIX = "#"                # символ комментария в .emu
+EXIT_COMMAND = "exit"                      # имя команды выхода
+
+# Новые константы для VFS:
+VFS_DEFAULT_NAME = "default"               # имя VFS по умолчанию
+CSV_COLUMNS = ("path", "type", "content")  # обязательные колонки CSV
+NODE_TYPE_DIR = "dir"                      # тип узла: папка
+NODE_TYPE_FILE = "file"                    # тип узла: файл
 
 
 # === ФУНКЦИЯ: собрать приглашение ===
-# def имя(аргументы): — так объявляется функция.
-# Возвращает значение через return.
 
 def get_prompt():
     """Формирует приглашение вида username@hostname:~$."""
-    user = getpass.getuser()      # берём имя пользователя ОС
-    hostname = socket.gethostname()  # берём имя компьютера
-    # .format подставляет значения в шаблон по именам {user} и {host}
+    user = getpass.getuser()                # имя пользователя ОС
+    hostname = socket.gethostname()         # имя компьютера
     return PROMPT_USER_HOST_FMT.format(user=user, host=hostname)
 
 
 # === ФУНКЦИЯ: разобрать аргументы командной строки ===
-# argv — список строк, например ["--vfs", "vfs/sample.json"]
 
 def parse_args(argv):
     """Разбирает аргументы командной строки эмулятора."""
-    # ArgumentParser — объект, который сам умеет читать --help и ловить ошибки
     parser = argparse.ArgumentParser(
-        prog="unix_emulator",                                     # имя программы в --help
-        description="Эмулятор командной строки UNIX-подобной ОС (Этап 2).",
+        prog="unix_emulator",
+        description="Эмулятор командной строки UNIX-подобной ОС (Этап 3).",
     )
-    # Добавляем опцию --vfs. Если её не передали — значение будет None
+    # Опция --vfs: путь к CSV-файлу VFS
     parser.add_argument(
-        "--vfs",                       # как писать в командной строке
-        dest="vfs_path",               # в какое поле положить значение
-        default=DEFAULT_VFS_PATH,      # значение по умолчанию
-        help="Путь к физическому расположению VFS.",
+        "--vfs",
+        dest="vfs_path",
+        default=DEFAULT_VFS_PATH,
+        help="Путь к физическому расположению VFS (CSV).",
     )
-    # Добавляем опцию --script
+    # Опция --script: путь к стартовому скрипту
     parser.add_argument(
         "--script",
         dest="script_path",
         default=DEFAULT_SCRIPT_PATH,
         help="Путь к стартовому скрипту с командами эмулятора.",
     )
-    # parse_args читает argv и возвращает объект с полями vfs_path и script_path
     return parser.parse_args(argv)
 
 
 # === ФУНКЦИЯ: напечатать конфигурацию ===
-# ничего не делает, просто печатает значения, которые мы получили из командной строки
+
 def print_debug_config(args):
     """Отладочный вывод всех заданных параметров при запуске."""
-    # args — это объект от argparse. args.vfs_path и args.script_path — его поля.
     print("=== Emulator configuration ===")
-    print(f"vfs_path    = {args.vfs_path}")       # f"..." — подставляет значение в строку
+    print(f"vfs_path    = {args.vfs_path}")
     print(f"script_path = {args.script_path}")
     print("==============================")
 
 
+# === ФУНКЦИЯ: создать VFS по умолчанию ===
+# Возвращает словарь с одним корневым узлом "/" — пустая папка.
+
+def create_default_vfs():
+    """Создаёт VFS по умолчанию — только корень / в памяти."""
+    return {"/": {NODE_TYPE_DIR: True, "children": {}}}
+
+
+# === ФУНКЦИЯ: проверить строку CSV ===
+# Строка валидна, если в ней есть все нужные колонки и корректный тип.
+
+def _validate_row(row):
+    """Проверяет, что строка CSV содержит нужные колонки."""
+    if row is None:
+        return False
+    # Проверяем, что все три колонки вообще есть
+    for column in CSV_COLUMNS:
+        if column not in row:
+            return False
+    # Проверяем, что тип — "dir" или "file"
+    if row["type"] not in (NODE_TYPE_DIR, NODE_TYPE_FILE):
+        return False
+    # Проверяем, что путь не пустой
+    if not row["path"]:
+        return False
+    return True
+
+
+# === ФУНКЦИЯ: вставить узел в дерево VFS ===
+# По пути "/home/user/file.txt" создаём нужные вложенные папки
+# и кладём файл в правильное место.
+
+def _insert_node(root, path, node_type, content):
+    """Вставляет узел в дерево VFS по полному пути."""
+    parts = [p for p in path.strip("/").split("/") if p]
+    if not parts:
+        return
+    # Начинаем с корневого узла "/", а не с самого словаря root
+    current = root["/"]
+    for part in parts[:-1]:
+        children = current.setdefault("children", {})
+        if part not in children:
+            children[part] = {NODE_TYPE_DIR: True, "children": {}}
+        current = children[part]
+    leaf = parts[-1]
+    children = current.setdefault("children", {})
+    if node_type == NODE_TYPE_DIR:
+        children.setdefault(leaf, {NODE_TYPE_DIR: True, "children": {}})
+    else:
+        children[leaf] = {NODE_TYPE_DIR: False, "content": content}
+
+
+# === ФУНКЦИЯ: загрузить VFS из CSV ===
+
+def load_vfs(csv_path):
+    """Загружает VFS из CSV-файла и возвращает корневой узел."""
+    root = create_default_vfs()
+    # Открываем файл. newline="" — правильно для csv на Windows.
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)   # читает CSV как словари по колонкам
+        for row in reader:
+            if not _validate_row(row):
+                # Если строка битая — говорим об этом вызывающему коду
+                raise ValueError(f"Некорректная строка CSV: {row}")
+            _insert_node(
+                root,
+                row["path"],
+                row["type"],
+                row.get("content") or None,
+            )
+    return root
+
+
+# === ФУНКЦИЯ: посчитать узлы в дереве VFS ===
+
+def _count_nodes(node):
+    """Считает количество узлов в дереве VFS (включая корень)."""
+    total = 1
+    for child in node.get("children", {}).values():
+        total += _count_nodes(child)   # рекурсия — функция зовёт саму себя
+    return total
+
+
+# === ФУНКЦИЯ: напечатать информацию о VFS ===
+
+def print_vfs_info(vfs_root, source_name):
+    """Печатает краткую информацию о загруженной VFS."""
+    total = _count_nodes(vfs_root["/"])
+    root_children = vfs_root["/"]["children"]
+    # sorted() — чтобы имена шли по алфавиту
+    names = ", ".join(sorted(root_children.keys())) or "(пусто)"
+    print("=== VFS loaded ===")
+    print(f"source: {source_name}")
+    print(f"nodes: {total}")
+    print(f"root children: {names}")
+    print("==================")
+
+
+# === ФУНКЦИЯ: попытаться загрузить VFS с обработкой ошибок ===
+
+def try_load_vfs(vfs_path):
+    """Загружает VFS из файла или создаёт по умолчанию при ошибке."""
+    # Если путь не передан — сразу дефолтный
+    if not vfs_path:
+        print("(VFS path not provided — using default in-memory VFS)")
+        root = create_default_vfs()
+        print_vfs_info(root, VFS_DEFAULT_NAME)
+        return root
+
+    # Пробуем загрузить из файла, ловим типичные ошибки
+    try:
+        root = load_vfs(vfs_path)
+    except FileNotFoundError:
+        print(f"shell: VFS file not found: {vfs_path}")
+        print("(falling back to default in-memory VFS)")
+        root = create_default_vfs()
+        print_vfs_info(root, VFS_DEFAULT_NAME)
+        return root
+    except (ValueError, csv.Error) as error:
+        print(f"shell: invalid VFS format: {error}")
+        print("(falling back to default in-memory VFS)")
+        root = create_default_vfs()
+        print_vfs_info(root, VFS_DEFAULT_NAME)
+        return root
+
+    print_vfs_info(root, vfs_path)
+    return root
+
+
 # === ФУНКЦИЯ: выполнить одну команду ===
-# command — строка ("ls", "cd", ...), args — список слов-аргументов
+# Пока всё ещё заглушки. Настоящая работа с VFS — на этапе 4.
 
 def execute_command(command, args):
-    """Выполняет одну команду эмулятора.
-    Возвращает True — работать дальше, False — выйти.
-    """
-    # Если команда exit — печатаем, что выходим, и говорим "дальше не надо"
+    """Выполняет одну команду эмулятора."""
     if command == EXIT_COMMAND:
         print("Exiting...")
         return False
 
-    # Заглушка ls: печатает имя команды и её аргументы
     if command == "ls":
         print(f"ls: arguments -> {args}")
         return True
 
-    # Заглушка cd: то же самое
     if command == "cd":
         print(f"cd: arguments -> {args}")
         return True
 
-    # Если ни одна из известных команд не сработала — сообщаем об ошибке
     print(f"shell: command not found: {command}")
-    return True   # эмулятор продолжает работу
+    return True
 
 
 # === ФУНКЦИЯ: разобрать и выполнить строку ===
-# line — что ввёл пользователь, prompt — приглашение, echo — печатать ли ввод
 
 def run_line(line, prompt, echo):
     """Разбирает и выполняет одну строку ввода."""
-
-    # .strip() убирает пробелы и \n в начале и в конце
     stripped = line.strip()
 
-    # Если строка пустая ИЛИ начинается с # — пропускаем её
     if not stripped or stripped.startswith(SCRIPT_COMMENT_PREFIX):
         return True
 
-    # os.path.expandvars заменяет $HOME, $USER и т.п. на реальные значения
     expanded = os.path.expandvars(stripped)
 
-    # Если echo=True (режим скрипта) — печатаем "приглашение + команда",
-    # как будто пользователь сам её ввёл
     if echo:
         print(f"{prompt}{stripped}")
 
-    # shlex.split режет строку на слова с учётом кавычек:
-    # 'ls "my file"' -> ['ls', 'my file']
-    # Если кавычки незакрыты — выбрасывается ValueError
     try:
         parts = shlex.split(expanded)
     except ValueError as error:
         print(f"shell: {error}")
-        return True   # пропускаем плохую строку, работаем дальше
+        return True
 
-    # Если после разбора ничего не осталось — пропускаем
     if not parts:
         return True
 
-    command = parts[0]    # первое слово — команда
-    args = parts[1:]      # остальные — аргументы
-    # Передаём управление другой функции; она вернёт True/False
+    command = parts[0]
+    args = parts[1:]
     return execute_command(command, args)
 
 
 # === ФУНКЦИЯ: интерактивный режим ===
 
 def run_interactive():
-    """Запускает интерактивный цикл REPL (Read-Eval-Print Loop)."""
-    prompt = get_prompt()   # один раз посчитали приглашение
-    while True:             # бесконечный цикл — пока не выйдем через return/break
+    """Запускает интерактивный цикл REPL."""
+    prompt = get_prompt()
+    while True:
         try:
-            # input() печатает prompt и ждёт ввод пользователя
             line = input(prompt)
         except (KeyboardInterrupt, EOFError):
-            # Ctrl+C или Ctrl+D — выходим аккуратно
             print("\nExiting...")
             return
 
-        # Выполняем строку. echo=False, потому что пользователь сам её ввёл.
         keep_going = run_line(line, prompt, echo=False)
-        # Если была команда exit — run_line вернёт False — выходим
         if not keep_going:
             return
 
@@ -163,15 +269,12 @@ def run_interactive():
 
 def run_startup_script(script_path):
     """Выполняет стартовый скрипт построчно, ошибки пропускает."""
-
-    # Пытаемся открыть файл. Если его нет — FileNotFoundError.
-    # encoding="utf-8" — чтобы читались русские буквы.
     try:
         with open(script_path, "r", encoding="utf-8") as file:
-            lines = file.readlines()   # читаем все строки в список
+            lines = file.readlines()
     except FileNotFoundError:
         print(f"shell: startup script not found: {script_path}")
-        return True   # переходим в REPL
+        return True
     except OSError as error:
         print(f"shell: cannot read startup script: {error}")
         return True
@@ -179,42 +282,40 @@ def run_startup_script(script_path):
     print(f"--- Executing startup script: {script_path} ---")
     prompt = get_prompt()
 
-    # Проходим по строкам по очереди
     for line in lines:
-        # echo=True — печатаем "приглашение + строка" как имитацию диалога
         keep_going = run_line(line, prompt, echo=True)
         if not keep_going:
-            # Встретили exit — прекращаем выполнение скрипта
             print("--- Startup script finished ---")
             return False
 
     print("--- Startup script finished ---")
-    return True   # дошли до конца скрипта без exit — идём в REPL
+    return True
 
 
 # === ТОЧКА ВХОДА ===
 
 def main(argv=None):
     """Точка входа приложения."""
-    # Если argv не передали — берём аргументы из командной строки
     if argv is None:
-        argv = sys.argv[1:]   # [1:] — пропускаем имя файла, берём только опции
+        argv = sys.argv[1:]
 
-    args = parse_args(argv)             # разобрали аргументы
-    print_debug_config(args)            # напечатали, что получили
+    args = parse_args(argv)
+    print_debug_config(args)
+
+    # Загружаем VFS (или дефолтный, если путь не задан / файл битый)
+    vfs_root = try_load_vfs(args.vfs_path)
 
     should_continue = True
-    # Если передан --script — выполняем скрипт
     if args.script_path:
         should_continue = run_startup_script(args.script_path)
 
-    # Если после скрипта не было exit — идём в интерактивный режим
     if should_continue:
         run_interactive()
 
+    # vfs_root пока не используется командами — пригодится на этапе 4
+    _ = vfs_root
 
-# Эта конструкция означает:
-# "если файл запущен напрямую (python main.py), вызови main()".
-# Если его импортируют как модуль — main() НЕ вызовется.
+
+# Запускается только если файл вызван напрямую: python src/main.py
 if __name__ == "__main__":
     main()
