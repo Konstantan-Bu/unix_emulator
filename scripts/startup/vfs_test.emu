@@ -1,0 +1,5 @@
+# Тестовый скрипт для этапа 3
+ls
+cd /home
+ls /home/user/docs
+exit
